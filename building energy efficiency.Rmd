@@ -1,0 +1,237 @@
+---
+title: "Stats Final Project"
+author: "Dhanusha Yerubandi and Jingyang Fan"
+date: "12/01/2019"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lmtest)
+library(MASS)
+library(faraway)
+library(ISLR)
+library(glmnet)
+```
+
+## Importing Data set
+```{r}
+full_data = read.csv("energy.csv")
+full_data = full_data[c(-10)] # remove Y2 response
+```
+
+Predictor variables: X1(Relative Compactness), X2(Surface Area), X3(Wall Area), X4(Roof Area), X5(Overall Height), X6(Orientation), X7(Glazing Area), X8(Glazing Area distribution)
+
+Response variables: Y1(Heating Load)
+
+Fitting a linear model with individual predictors respectively to understand their linearity with response variable.
+```{r}
+# Fit models
+fit_x1=lm(Y1~X1,data=full_data)
+fit_x2=lm(Y1~X2,data=full_data)
+fit_x3=lm(Y1~X3,data=full_data)
+fit_x4=lm(Y1~X4,data=full_data)
+fit_x5=lm(Y1~X5,data=full_data)
+fit_x6=lm(Y1~X6,data=full_data)
+fit_x7=lm(Y1~X7,data=full_data)
+fit_x8=lm(Y1~X8,data=full_data)
+
+# plot figures
+plot(Y1~X1,data=full_data,pch=20)
+abline(fit_x1,lwd=2)
+plot(Y1~X2,data=full_data,pch=20)
+abline(fit_x2,lwd=2)
+plot(Y1~X3,data=full_data,pch=20)
+abline(fit_x3,lwd=2)
+plot(Y1~X4,data=full_data,pch=20)
+abline(fit_x4,lwd=2)
+plot(Y1~X5,data=full_data,pch=20)
+abline(fit_x5,lwd=2)
+plot(Y1~X6,data=full_data,pch=20)
+abline(fit_x6,lwd=2)
+plot(Y1~X7,data=full_data,pch=20)
+abline(fit_x7,lwd=2)
+plot(Y1~X8,data=full_data,pch=20)
+abline(fit_x8,lwd=2)
+```
+
+Factorize the categorical variables and create a correlation matrix
+```{r}
+full_data$X6 <- as.factor(full_data$X6) # X6 column to categorical
+full_data$X8 <- as.factor(full_data$X8) # X8 column to categorical
+
+cor(x=full_data[c(-6, -8, -9)], method="spearman")
+```
+
+Fitting a linear model with response variable vs all predictors.
+```{r}
+# model with all variables
+fit_model1=lm(Y1~.,data=full_data)
+summary(fit_model1)
+
+# X2 is a linear combination of X3 and X4: X2 = X3 + (2)*X4
+# remove X2 from the model
+fit_model1=lm(Y1~.-X2,data=full_data)
+summary(fit_model1)
+```
+
+```{r}
+vif(fit_model1)
+fm=lm(Y1~.-X2-X4,data=full_data)#removing X4 due to high vif value
+summary(fm)
+vif(fm)
+```
+
+Add interaction terms for highly correlated terms and fit another model
+```{r}
+# interaction terms between X1, X4, and X5
+fit_model2=lm(Y1~. -X2 + X1:X4:X5 + X1:X4 + X1:X5 + X4:X5, 
+    data=full_data)
+summary(fit_model2)
+
+# remove X1:X4:X5 and X4:X5 because they have exact collinearity
+fit_model2=lm(Y1~. -X2 + X1:X4 + X1:X5, 
+    data=full_data)
+summary(fit_model2)
+```
+
+Variable selection using stepwise AIC
+```{r}
+fit_null=lm(Y1~1,data=full_data)
+fit_stepwise_aic=step(fit_null,scope=Y1~X1+X2+X3+X4+X5+X6+X7+X8+X1:X4+X1:X5+
+        X1:X4:X5+X4:X5,direction='both')
+#fit_stepwise_aic=step(fit_null,scope=Y1~X1+X3+X4+X5+X7+X1:X4+X1:X5,direction='both')
+fit_stepwise_aic
+```
+
+Variable selection using stepwise BIC
+```{r}
+n = nrow(full_data)
+fit_null=lm(Y1~1,data=full_data)
+fit_stepwise_bic=step(fit_null,scope=Y1~X1+X3+X4+X5+X6+X7+X8+X1:X4+X1:X5,direction='both', 
+    k=log(n))
+#fit_stepwise_bic=step(fit_null,scope=Y1~X1+X3+X4+X5+X7+X1:X4+X1:X5,direction='both', 
+#    k=log(n))
+fit_stepwise_bic
+```
+
+Check linearity, normality, and equal variance assumptions
+```{r}
+par(mfrow=c(1,2))
+plot(fitted(fit_stepwise_bic), resid(fit_stepwise_bic), col = "dodgerblue",
+     pch = 20, cex = 1.5, xlab = "Fitted", ylab = "Residuals",
+     main="Residual plot")
+abline(h=0, col = "darkorange", lwd = 2)
+qqnorm(resid(fit_stepwise_bic), main = "Normal Q-Q Plot", col = "darkgrey",pch=20)
+qqline(resid(fit_stepwise_bic), col = "dodgerblue", lwd = 2)
+
+bptest(fit_stepwise_bic)
+shapiro.test(resid(fit_stepwise_bic))
+```
+
+Transformations
+```{r}
+boxcox(fit_stepwise_bic, lambda = seq(-0.5, 0.5, by = 0.05))
+lambda = 0.1
+bc_model=lm(((Y1^(lambda)-1)/(lambda))~X1+X3+X4+X5+X7+X8+X1:X4+X1:X5,data=full_data)
+
+par(mfrow=c(1,2))
+plot(resid(bc_model)~fitted(bc_model), col = "grey", pch = 20,
+     xlab = "Fitted", ylab = "Residuals", main = "Fitted versus Residuals")
+abline(h = 0, col = "darkorange", lwd = 2)
+qqnorm(resid(bc_model), main = "Normal Q-Q Plot", col = "darkgrey")
+qqline(resid(bc_model), col = "dodgerblue", lwd = 2)
+bptest(bc_model)
+shapiro.test(resid(bc_model))
+```
+
+Separate training and testing set
+```{r}
+n = nrow(full_data)
+idx_tr = sample(n,round(0.7*n),replace=FALSE)
+train_data = full_data[idx_tr, ]
+test_data = full_data[-idx_tr, ]
+
+# create interactions terms for X dataframe
+X = with(full_data, as.matrix(cbind('X1'=X1,'X2'=X2, 'X3'=X3, 'X4'=X4, 'X5'=X5, 
+    'X6'=as.factor(X6), 'X7'=X7, 'X8'=as.factor(X8), 
+    'X1:X4'=X1*X4, 'X1:X5'=X1*X5, 'X4:X5'=X4*X5, 
+     'X1:X4:X5'=X1*X4*X5)))
+
+
+
+y = with(full_data, as.matrix(Y1, ncol=1))
+
+y_tr <- y[idx_tr]
+X_tr <- X[idx_tr,]
+y_ts <- y[-idx_tr]
+X_ts <- X[-idx_tr,]
+```
+
+Variable Shrinkage using Ridge
+```{r}
+fit_ridge_cv = cv.glmnet(X_tr, y_tr, nfolds=5, type.measure='mse', alpha = 0)
+plot(fit_ridge_cv)
+bestlam = fit_ridge_cv$lambda.min
+fit_ridge_best = glmnet(X_tr, y_tr, alpha = 0, lambda = bestlam)
+pred_ridge = predict(fit_ridge_best, s = bestlam, newx = X_ts)
+mse_ridge = mean((pred_ridge-y_ts)^2)
+mae_ridge = mean(abs(pred_ridge-y_ts))
+mse_ridge
+mae_ridge
+coef(fit_ridge_best)
+```
+
+Variable Selection using LASSO
+```{r}
+fit_lasso_cv = cv.glmnet(X_tr, y_tr, nfolds=5, type.measure='mse', alpha = 1)
+bestlam = fit_lasso_cv$lambda.min
+fit_lasso_best = glmnet(X_tr, y_tr, alpha = 1, lambda = bestlam)
+plot(fit_lasso_cv)
+pred_lasso = predict(fit_lasso_best, s = bestlam, newx = X_ts)
+mse_lasso = mean((pred_lasso-y_ts)^2)
+mae_lasso = mean(abs(pred_lasso-y_ts))
+mse_lasso
+mae_lasso
+coef(fit_lasso_best)
+```
+
+Refitting stepwise selected predictors using training set
+```{r}
+final_model = lm(Y1~X1+X3+X4+X5+X7+X8+X1:X4+X1:X5, data=train_data)
+summary(final_model)
+```
+
+Fitting model from vif values
+```{r}
+final_model2=lm(Y1~.-X2-X4,data=train_data)
+```
+
+Checking performance of all models on the testing set
+```{r}
+final_model_pred = predict(final_model, newdata=test_data)
+final_model_mse = mean((final_model_pred - y_ts)^2)
+final_model_mae = mean(abs(final_model_pred - y_ts))
+
+final_model2_pred = predict(final_model2, newdata=test_data)
+final_model2_mse = mean((final_model2_pred - y_ts)^2)
+final_model2_mae = mean(abs(final_model2_pred - y_ts))
+
+
+c(final_model_mse, final_model_mae)
+c(final_model2_mse, final_model2_mae)
+c(mse_ridge, mae_ridge)
+c(mse_lasso, mae_lasso)
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
